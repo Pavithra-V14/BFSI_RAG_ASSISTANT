@@ -1,0 +1,65 @@
+python-dotenv
+google-genai
+groq
+presidio-analyzer 
+presidio-anonymizer
+# Core service
+fastapi==0.141.1
+uvicorn==0.52.4
+pydantic==2.13.4
+numpy==2.4.4
+pymupdf==1.28.2   # real layout-aware PDF parsing (text, tables, images) — see ADR / ingestion/parser.py
+reportlab==4.4.10 # only used to build the synthetic multimodal test PDF in samples/
+rank-bm25==0.2.2
+pytest==9.1.1
+
+# Orchestration — ADR 0001
+llama-index-core==0.14.24
+
+# Vector DB — ADR 0002 (embedded/local mode, no server needed;
+# swap QdrantClient(path=...) for QdrantClient(url=...) for a real server)
+qdrant-client==1.19.0
+
+# LLM gateway + reranker — ADR 0003
+litellm==1.97.0
+cohere==7.0.9
+
+# Guardrails — ADR 0005
+llm-guard==0.3.16
+guardrails-ai==0.11.0
+
+# Memory — ADR 0006
+mem0ai==2.0.18
+
+# Cache — ADR 0004 (requires a running Valkey/Redis-protocol server;
+# `apt-get install valkey-server` or point VALKEY_HOST at a real instance)
+valkey==6.1.1
+
+# Observability — ADR 0007
+langfuse==4.14.4
+
+# Evaluation — ADR 0008 (ragas itself is NOT installed — see ADR 0008 and
+# eval/ragas_metrics.py for why: unresolved transitive conflict with
+# guardrails-ai/langgraph's langchain-core requirement in this stack)
+deepeval==4.1.10
+
+# Auth
+pyjwt==2.7.0
+
+# Frontend
+streamlit==1.62.0
+requests==2.32.3
+
+# Rate limiting — ADR-pending (config.RATE_LIMIT_*)
+slowapi==0.1.9
+redis==8.1.0   # NOT the valkey package — the `limits` library slowapi
+               # depends on specifically requires the redis client by
+               # name for its redis:// storage backend, even though it
+               # connects fine to a real Valkey server (same protocol).
+               # retrieval/cache.py's own Valkey client is unaffected —
+               # this is only needed for slowapi's rate-limit counters.
+
+# Self-hosted reranker (optional, LOCAL_RERANKER_ENABLED=true)
+sentence-transformers==3.3.1
+psycopg2-binary==2.9.12
+resend==2.40.1

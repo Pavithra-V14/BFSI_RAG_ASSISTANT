@@ -1,0 +1,39 @@
+SAMPLE HEALTH INSURANCE POLICY WORDING
+UIN: DEMO-HLTH-001 (synthetic, for testing only)
+Insurer: Demo General Insurance Ltd.
+
+Section 1. Definitions
+1.1 "Hospitalization" means admission to a hospital for a minimum continuous period of 24 hours.
+1.2 "Sum Insured" means the amount stated in the policy schedule against which cover is provided.
+1.3 "Waiting Period" means the period during which specified illnesses or conditions are not covered.
+
+Section 2. Coverage
+2.1 The Company will indemnify Medical Expenses incurred by the Insured Person during Hospitalization,
+up to the Sum Insured, subject to the terms, conditions and exclusions of this Policy.
+2.2 Pre-hospitalization expenses incurred up to 30 days prior to Hospitalization are covered.
+2.3 Post-hospitalization expenses incurred up to 60 days after discharge are covered.
+
+Section 3. Waiting Periods
+3.1 A waiting period of 30 days applies from the policy start date for all illnesses, except accidents.
+3.2 A waiting period of 24 months applies to specified conditions listed in Annexure A.
+3.3 Pre-existing diseases are covered only after a continuous waiting period of 36 months.
+
+Section 4. Portability
+4.1 The Insured Person may port this policy to another insurer by applying at least 45 days before,
+but not earlier than 60 days from, the policy renewal date.
+4.2 On portability, accrued continuity benefits such as waiver of waiting periods already served
+shall be carried forward, subject to the sum insured under the previous policy.
+
+Section 5. Claims
+5.1 Cashless claims require pre-authorization from the Company's network hospital desk.
+5.2 Reimbursement claims must be filed within 30 days of discharge from hospital.
+5.3 The Company shall settle or reject a claim within 15 days of receipt of all required documents.
+
+Section 6. Exclusions
+6.1 Cosmetic or plastic surgery, unless necessitated by an accident, is excluded.
+6.2 Treatment for obesity or weight control is excluded unless medically necessary and pre-approved.
+6.3 Self-inflicted injury or injury under the influence of intoxicants is excluded.
+
+Section 7. Co-payment
+7.1 A co-payment of 10% applies to all claims where treatment is taken outside the Company's
+preferred provider network.

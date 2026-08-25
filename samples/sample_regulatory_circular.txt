@@ -1,0 +1,25 @@
+SAMPLE REGULATORY CIRCULAR (synthetic, for testing only)
+Circular No: DEMO/REG/2026/014
+Subject: Guidance on Claim Settlement Timelines and Grievance Redressal
+
+Clause 1. Applicability
+1.1 This circular applies to all insurers offering health and general insurance products.
+
+Clause 2. Claim Settlement Timelines
+2.1 Insurers shall communicate a decision on cashless pre-authorization requests within 1 hour
+of receiving complete information from the network provider.
+2.2 Insurers shall settle or reject reimbursement claims within 15 days of receipt of all
+necessary documents from the policyholder.
+2.3 Any delay beyond the timelines in 2.1 and 2.2 shall attract interest at the rate specified
+by the Authority, payable to the policyholder.
+
+Clause 3. Grievance Redressal
+3.1 Every insurer shall maintain a grievance redressal cell with a defined escalation matrix.
+3.2 Unresolved grievances after 15 days may be escalated to the Insurance Ombudsman.
+
+Clause 4. KYC Requirements for High-Value Claims
+4.1 For claims exceeding the threshold specified in Annexure B, insurers shall re-verify the
+identity of the claimant using at least one government-issued identity document.
+
+Clause 5. Amendment History
+5.1 This circular supersedes DEMO/REG/2024/009 with effect from the date of issue.
