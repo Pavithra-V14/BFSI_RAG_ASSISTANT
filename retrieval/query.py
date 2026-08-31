@@ -1,9 +1,3 @@
-"""
-Retrieval query CLI — M3 demo command.
-
-    python -m retrieval.query --q "portability waiting period" \
-        --role claims_adjuster --explain
-"""
 from __future__ import annotations
 
 import argparse
@@ -16,11 +10,8 @@ from retrieval.index import hybrid_retrieve
 from retrieval.rerank import rerank
 import config
 
-
 def run_query(query: str, role: str, product_line: str | None = None, explain: bool = False) -> dict:
     vector_store, doc_store = VectorStore(), DocStore()
-
-    # First pass at low top_k just to estimate confidence for the guardrail
     probe = hybrid_retrieve(query, vector_store, doc_store, filters={"access_role": [role, "*"]}, top_k=5)
     probe_confidence = probe[0].score if probe else 0.0
 

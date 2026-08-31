@@ -1,29 +1,3 @@
-"""
-Document parsing — real layout-aware PDF extraction via PyMuPDF, not the
-plain-text-only pypdf extraction this replaces.
-
-Why PyMuPDF and not unstructured.io: unstructured's high-accuracy PDF
-strategy downloads layout-detection models from HuggingFace at first use
-(same class of dependency that made LLM Guard's ML scanner unavailable in
-network-restricted environments — see guardrails/input_guardrail.py).
-PyMuPDF's table/text/image extraction is algorithmic, not model-based, so
-it works identically regardless of model-hub reachability — a real
-production concern, not just a sandbox workaround, since a customer's
-deployment environment may have the exact same network restriction.
-
-Table handling: PyMuPDF's page.find_tables() detects table structure
-algorithmically; each detected table is converted to markdown text and
-becomes its own chunk (clause_type="table") — never embedded as an image,
-per the "caption once, embed as text" architecture decision.
-
-Image handling: every embedded image is extracted once at ingestion time
-and captioned via Gemini vision (caption_image(), below) — the caption
-becomes a text chunk (clause_type="image_caption"), the actual image
-bytes are NOT stored or re-sent on every query. Requires GEMINI_API_KEY;
-gracefully skips (not crashes) when unavailable, logging exactly what was
-skipped so an operator can see a document was ingested with reduced
-fidelity rather than silently losing image content.
-"""
 from __future__ import annotations
 
 import logging
@@ -38,8 +12,7 @@ class ExtractedImage:
     page_number: int
     image_index: int
     image_bytes: bytes
-    mime_type: str  # e.g. "image/png"
-
+    mime_type: str 
 
 @dataclass
 class ParsedDocument:
@@ -48,9 +21,7 @@ class ParsedDocument:
     text: str
     tables_as_markdown: list[str] = field(default_factory=list)
     image_captions: list[str] = field(default_factory=list)
-    images_skipped_no_caption: int = 0  # visible signal, not a silent drop —
-    # see caption_image()'s docstring for why this can be nonzero
-
+    images_skipped_no_caption: int = 0  
 
 def caption_image(image_bytes: bytes, mime_type: str = "image/png") -> str | None:
     """
@@ -85,7 +56,7 @@ def caption_image(image_bytes: bytes, mime_type: str = "image/png") -> str | Non
             ],
         )
         return response.text.strip()
-    except Exception as e:  # noqa: BLE001 — one failed caption must not fail the whole ingest
+    except Exception as e:  
         logger.warning("Image captioning failed (%s) — image skipped, not silently dropped", str(e)[:200])
         return None
 
@@ -141,7 +112,7 @@ def parse_pdf_file(path: str | Path) -> ParsedDocument:
                 md = _table_to_markdown(extracted)
                 if md:
                     tables_as_markdown.append(md)
-        except Exception as e:  # noqa: BLE001 — table detection failure must not fail the whole page
+        except Exception as e:  
             logger.warning("Table detection failed on page %d (%s)", page_num, str(e)[:200])
 
         for img_index, img in enumerate(page.get_images(full=True)):
@@ -150,7 +121,7 @@ def parse_pdf_file(path: str | Path) -> ParsedDocument:
                 base_image = doc.extract_image(xref)
                 image_bytes = base_image["image"]
                 mime_type = f"image/{base_image['ext']}"
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  
                 logger.warning("Image extraction failed on page %d image %d (%s)", page_num, img_index, str(e)[:200])
                 images_skipped += 1
                 continue

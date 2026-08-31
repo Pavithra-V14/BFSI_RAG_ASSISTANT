@@ -1,19 +1,9 @@
-"""
-M7 demo command:
-
-    python -m observability.trace_check --last 10
-
-Confirms every recent request has a complete trace covering the stages it
-should have touched, given how it terminated (short-circuited on refusal,
-cache hit, or full pipeline run).
-"""
 from __future__ import annotations
 
 import argparse
 import json
 
 from observability.tracer import read_recent_traces
-
 
 def check(n: int = 10) -> dict:
     traces = read_recent_traces(n)

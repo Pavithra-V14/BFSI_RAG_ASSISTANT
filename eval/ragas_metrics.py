@@ -1,26 +1,3 @@
-"""
-RAGAS-equivalent metrics, implemented as DeepEval BaseMetric subclasses.
-
-Why custom instead of importing ragas directly: ragas has a hard,
-unresolvable transitive dependency conflict in this environment — its
-`langchain_community.chat_models.vertexai` import chain requires an old
-`langchain-core` that's incompatible with the `langchain-core>=1.0`
-required by guardrails-ai and langgraph (both already in this stack, see
-ADR 0001/0005). See ADR 0008 for the full resolution.
-
-These implement the same formulas RAGAS uses for the two metrics our eval
-targets require (faithfulness, context precision) using DeepEval's metric
-interface, so `eval/run.py` gets a real pytest-CI-gate-compatible score,
-not the inline lexical-overlap proxy used per-request in
-guardrails/output_guardrail.py (that one has to be synchronous/zero-latency;
-these run offline against the golden set and can afford a judge-LLM call).
-
-Judge model: Gemini 2.5 Flash via LiteLLM when GEMINI_API_KEY/GROQ_API_KEY
-is set; falls back to the same lexical-overlap proxy (no judge call) when
-no provider key is configured, so `eval/run.py` still produces a real
-number with zero API keys — just a coarser one, same as every other
-fallback in this codebase.
-"""
 from __future__ import annotations
 
 import os
@@ -99,7 +76,6 @@ class FaithfulnessMetric(BaseMetric):
     @property
     def __name__(self) -> str:
         return "Faithfulness (RAGAS-equivalent)"
-
 
 class ContextPrecisionMetric(BaseMetric):
     """RAGAS-equivalent: of the retrieved chunks, what fraction are

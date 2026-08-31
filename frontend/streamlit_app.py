@@ -1,14 +1,3 @@
-"""
-Streamlit frontend for the BFSI RAG Assistant.
-
-Run:  streamlit run frontend/streamlit_app.py
-
-Talks to the FastAPI backend over HTTP — the frontend holds no business
-logic, no direct DB/vector-store access, and never calls the LLM gateway
-itself. Every guardrail, scoping rule, and fail-closed behavior lives in
-the backend; this file is purely presentation + the JWT held in
-st.session_state.
-"""
 from __future__ import annotations
 
 import os
@@ -45,20 +34,11 @@ def _api(method: str, path: str, timeout: int = 120, **kwargs) -> requests.Respo
 
 
 def _logout() -> None:
-    # 2026-08-24 fix: this used to only clear LOCAL Streamlit state — the
-    # token itself stayed fully valid server-side until its natural 24h
-    # expiry, meaning the backend's token-revocation feature (item 1) was
-    # built but never actually triggered by clicking "Log out" in the UI.
-    # Call the real endpoint FIRST, while the token is still in
-    # session_state (needed for the Authorization header), then clear.
     if st.session_state.get("token"):
         try:
             _api("POST", "/auth/logout", timeout=10)
         except Exception:
-            pass  # logging out locally must succeed even if the backend
-            # call fails (e.g. server briefly unreachable) — the token
-            # will simply expire naturally in that case, not a security
-            # hole, just not immediate revocation
+            pass 
     for k in ("token", "username", "role", "user_id", "current_session_id", "messages"):
         st.session_state[k] = None if k != "messages" else []
     st.rerun()

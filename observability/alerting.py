@@ -1,21 +1,3 @@
-"""
-Observability alerting (item 6) — pushes a Slack-compatible webhook
-notification when the system enters a genuinely actionable degraded
-state, instead of requiring a human to notice by manually checking
-/admin/stats. Everything built before this was pull-only; this is the
-first push mechanism.
-
-Primary signal: consecutive generation calls that fell back to the
-offline mock (every real provider failed) — this is exactly what
-happened today (Groq+Cerebras+Gemini+OpenRouter simultaneously down),
-and it's the single clearest "something is actually wrong, not just
-one flaky call" signal available without a dedicated scheduler/cron.
-
-Disabled entirely when ALERT_WEBHOOK_URL is unset (config.py) — never
-sends anything on a dev machine with nothing configured, and never
-crashes a request if the webhook call itself fails (alerting must be
-best-effort, not a new point of failure for the actual product).
-"""
 from __future__ import annotations
 
 import logging
@@ -37,7 +19,7 @@ def _send_webhook(message: str) -> None:
     try:
         import requests
         requests.post(config.ALERT_WEBHOOK_URL, json={"text": message}, timeout=5)
-    except Exception as e:  # noqa: BLE001 — alerting must never break the request it's alerting about
+    except Exception as e: 
         logger.warning("Alert webhook delivery failed (%s) — alert was NOT sent: %s", str(e)[:200], message)
 
 
@@ -48,7 +30,6 @@ def _cooldown_ok(alert_key: str) -> bool:
         return False
     _last_alert_at[alert_key] = now
     return True
-
 
 def record_generation_outcome(degraded: bool, provider: str | None) -> None:
     """

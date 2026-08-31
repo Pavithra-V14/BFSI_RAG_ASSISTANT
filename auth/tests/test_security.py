@@ -10,7 +10,6 @@ from auth.security import (
     verify_password,
 )
 
-
 def test_hash_password_produces_salt_and_digest():
     hashed = hash_password("correct-horse-battery-staple")
     assert "$" in hashed

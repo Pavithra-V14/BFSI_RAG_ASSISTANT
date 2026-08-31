@@ -1,31 +1,3 @@
-"""
-Reranker — narrows the 25 hybrid candidates down to the final 5 chunks
-actually sent to the LLM (see ADR 0002 / pipeline-parameters.md for the k
-choice and threshold values).
-
-Four tiers, in order:
-  1. Cohere Rerank 3 (best precision on legal/financial text) — requires
-     COHERE_API_KEY. Trial keys are limited to 10 calls/minute (confirmed
-     live) — a bulk eval run or heavy testing session exhausts this fast.
-  2. Jina AI Reranker — requires JINA_API_KEY. Separate quota pool from
-     Cohere entirely (different account, different infra) — added
-     specifically so a Cohere rate-limit doesn't take down the only real
-     (non-lexical) reranking tier. Plain REST call, no SDK dependency.
-  3. Self-hosted bge-reranker-v2-m3 (BAAI, open weight) — no per-call
-     limit at all since it runs locally, but needs HuggingFace model-hub
-     access to download once (~1-2GB) and real CPU/GPU to run inference.
-     Opt-in via LOCAL_RERANKER_ENABLED=true (not on by default — the
-     first-use download is large enough that it shouldn't happen as a
-     surprise). Uses the same fast DNS-reachability pre-check pattern as
-     guardrails/input_guardrail.py's LLM Guard loader, so an unreachable
-     model hub fails in milliseconds, not a connection timeout. NOTE:
-     confirmed to fail on Windows with a small page file (os error 1455)
-     — needs either a larger page file or LOCAL_RERANKER_ENABLED=false.
-  4. Lexical overlap scorer — always available, zero dependencies.
-
-Each tier falls through to the next on any failure, logging a warning
-either way so a degraded rerank path is visible, not silent.
-"""
 from __future__ import annotations
 
 import logging
@@ -37,20 +9,15 @@ from retrieval.index import Candidate
 
 logger = logging.getLogger(__name__)
 
-RERANK_TOP_K = config.RERANK_TOP_K  # kept as module attr for backward-compat imports
+RERANK_TOP_K = config.RERANK_TOP_K  
 RELEVANCE_FLOOR = config.RELEVANCE_FLOOR
 
 _LOCAL_RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 _JINA_RERANK_URL = "https://api.jina.ai/v1/rerank"
-_JINA_DEFAULT_MODEL = "jina-reranker-v2-base-multilingual"  # env-overridable via
-# JINA_RERANK_MODEL — same reasoning as the gateway's OPENROUTER_MODEL/
-# CEREBRAS_MODEL: free-tier model catalogs have repeatedly proven
-# perishable today, don't assume any specific slug stays valid
-
+_JINA_DEFAULT_MODEL = "jina-reranker-v2-base-multilingual"  
 
 def _tokens(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", text.lower()))
-
 
 def _lexical_rerank(query: str, candidates: list[Candidate], top_k: int) -> list[Candidate]:
     """Fallback reranker — no API key, no model download required. See
@@ -67,13 +34,11 @@ def _lexical_rerank(query: str, candidates: list[Candidate], top_k: int) -> list
     scored.sort(key=lambda x: x[0], reverse=True)
     return [_rescored(c, s) for s, c in scored[:top_k]]
 
-
 def _rescored(candidate: Candidate, new_score: float) -> Candidate:
     return Candidate(
         chunk_id=candidate.chunk_id, score=new_score,
         metadata=candidate.metadata, text=candidate.text,
     )
-
 
 def _cohere_rerank(query: str, candidates: list[Candidate], top_k: int) -> list[Candidate]:
     import cohere
@@ -88,7 +53,6 @@ def _cohere_rerank(query: str, candidates: list[Candidate], top_k: int) -> list[
         _rescored(candidates[r.index], r.relevance_score)
         for r in response.results
     ]
-
 
 def _jina_rerank(query: str, candidates: list[Candidate], top_k: int) -> list[Candidate]:
     import requests
@@ -112,10 +76,8 @@ def _jina_rerank(query: str, candidates: list[Candidate], top_k: int) -> list[Ca
         for r in results
     ]
 
-
 def _local_reranker_enabled() -> bool:
     return os.environ.get("LOCAL_RERANKER_ENABLED", "false").lower() in ("true", "1", "yes")
-
 
 def _get_local_reranker():
     """
@@ -141,7 +103,7 @@ def _get_local_reranker():
             from sentence_transformers import CrossEncoder
             logger.info("Loading local reranker %s (first use only, cached after)", _LOCAL_RERANKER_MODEL)
             _get_local_reranker._cached = CrossEncoder(_LOCAL_RERANKER_MODEL)
-        except Exception as e:  # noqa: BLE001 — model download/load can fail many ways
+        except Exception as e:  
             logger.warning("Local reranker load failed (%s), falling through to lexical reranker", str(e)[:200])
             _get_local_reranker._cached = None
 
@@ -165,19 +127,19 @@ def rerank(query: str, candidates: list[Candidate], top_k: int = config.RERANK_T
     if os.environ.get("COHERE_API_KEY"):
         try:
             return _cohere_rerank(query, candidates, top_k)
-        except Exception as e:  # noqa: BLE001 — reranker must not crash the request
+        except Exception as e:  
             logger.warning("Cohere rerank failed (%s), trying next tier", str(e)[:300])
 
     if os.environ.get("JINA_API_KEY"):
         try:
             return _jina_rerank(query, candidates, top_k)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e: 
             logger.warning("Jina rerank failed (%s), trying next tier", str(e)[:300])
 
     if _local_reranker_enabled():
         try:
             return _local_rerank(query, candidates, top_k)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e: 
             logger.warning("Local reranker failed (%s), falling back to lexical reranker", str(e)[:200])
 
     if not any([os.environ.get("COHERE_API_KEY"), os.environ.get("JINA_API_KEY"), _local_reranker_enabled()]):

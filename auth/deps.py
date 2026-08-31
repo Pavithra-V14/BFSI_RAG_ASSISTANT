@@ -1,8 +1,3 @@
-"""
-FastAPI dependencies for authentication (who are you) and authorization
-(are you allowed to do this) — every protected endpoint in app.py depends
-on one of these instead of trusting body fields.
-"""
 from __future__ import annotations
 
 import jwt
@@ -14,16 +9,12 @@ from auth.store import get_user_by_username, is_token_revoked
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/login")
 
-
 class CurrentUser:
     def __init__(self, username: str, role: str, user_id: int, jti: str | None = None):
         self.username = username
         self.role = role
         self.user_id = user_id
-        self.jti = jti  # 2026-08-24 — the token's own unique ID, needed by
-        # /auth/logout to revoke exactly this token (not every token this
-        # user has ever been issued)
-
+        self.jti = jti  
 
 def get_current_user(token: str = Depends(oauth2_scheme)) -> CurrentUser:
     try:

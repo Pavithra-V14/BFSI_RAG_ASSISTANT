@@ -1,22 +1,3 @@
-"""
-One-time admin bootstrap — creates the FIRST admin account.
-
-Why this exists as a script, not an API endpoint: /auth/register only
-ever creates the lowest-privilege role (see auth/store.py's
-SELF_SERVE_ROLES), and promoting a user to admin requires an existing
-admin (PATCH /admin/users/{id}/role). That's correct and intentional —
-but it means a fresh deployment with zero users has no way to create its
-first admin through the API at all. This script is the deliberate,
-narrow exception: run once, by whoever has shell access to the server
-(which is already a higher trust bar than "anyone who can reach the API"),
-not exposed over HTTP at all.
-
-Usage:
-    python -m scripts.create_admin --username admin1 --email admin1@company.com
-
-Prompts for a password interactively (never accepted as a CLI arg, so it
-never ends up in shell history or process listings).
-"""
 from __future__ import annotations
 
 import argparse
@@ -25,7 +6,6 @@ import sys
 
 import auth.store as store
 from auth.security import hash_password
-
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)

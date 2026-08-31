@@ -1,33 +1,3 @@
-"""
-The harness — the actual product (per the architecture discussion). Every
-route is thin; the decision logic lives in the modules it calls, testable
-without hitting a real LLM.
-
-Endpoints:
-  POST /auth/register        create a user (self-serve role selection for
-                              demo purposes — production: admin-provisioned)
-  POST /auth/login            OAuth2 password flow -> JWT
-  GET  /auth/me                current user's identity
-  POST /sessions               create a chat session
-  GET  /sessions                list the caller's own sessions
-  GET  /sessions/{id}/messages  full transcript of one of the caller's sessions
-  DELETE /sessions/{id}         delete one of the caller's sessions
-  POST /query                   the RAG pipeline itself (auth required)
-  POST /ingest                  document ingestion (compliance_officer/admin only)
-  POST /feedback                thumbs up/down on an answer, for the eval loop
-  GET  /admin/stats             role-gated operational snapshot (admin only)
-  GET  /health                  liveness, no auth
-
-Flow inside /query (three-layer guardrail stack from ADR 0005):
-  input guardrail -> cache check -> retrieval -> rerank ->
-  CONTEXT GUARDRAIL -> generation (via gateway) -> output guardrail ->
-  cache write-back -> session transcript write -> trace flush
-  (Mem0/long-term memory removed 2026-08-25 — confirmed it was fetched,
-  counted, logged, and never actually used downstream; pure overhead with
-  no functional effect on any response, and it also never survived a
-  Render restart since it lived in a local-only embedded Qdrant store,
-  unlike everything else in this pipeline which now persists to Postgres.)
-"""
 from __future__ import annotations
 
 import logging
@@ -35,12 +5,7 @@ import time
 from datetime import datetime, timezone
 
 from dotenv import load_dotenv
-load_dotenv()  # MUST run before any module below reads os.environ at import
-# time (config.py, gateway/llm_gateway.py's PROVIDER_CONFIG, etc. all
-# resolve env vars when imported, not per-request) — without this call,
-# editing .env has no effect at all; the app only sees whatever was
-# already in the shell's environment when it was launched.
-
+load_dotenv()  
 logger = logging.getLogger(__name__)
 
 import jwt
@@ -99,9 +64,9 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config.CORS_ALLOWED_ORIGINS,  # env: CORS_ALLOWED_ORIGINS, comma-separated;
-    allow_methods=["*"],                          # defaults to just the local Streamlit dev origin
-    allow_headers=["*"],                          # — never "*" outside local dev
+    allow_origins=config.CORS_ALLOWED_ORIGINS,  
+    allow_methods=["*"],                          
+    allow_headers=["*"],                       
     allow_credentials=True,
 )
 
@@ -136,7 +101,7 @@ def _start_rotation_scheduler() -> None:
 
 _vector_store, _doc_store = VectorStore(), DocStore()
 _cache = SemanticCache()
-_gateway = get_gateway()  # shared singleton — see gateway/llm_gateway.py
+_gateway = get_gateway() 
 
 INGEST_ROLES = ("compliance_officer", "admin")
 ADMIN_ROLES = ("admin",)
@@ -148,21 +113,13 @@ class RegisterRequest(BaseModel):
     username: str = Field(min_length=3, max_length=50)
     email: str
     password: str = Field(min_length=8)
-    # No `role` field — self-serve registration always creates the
-    # lowest-privilege role (auth_store.SELF_SERVE_ROLES). Anything higher
-    # requires an existing admin to promote via PATCH /admin/users/{id}/role.
-    # This closes the previously-open gap where anyone could self-register
-    # as admin by just typing "role": "admin" in the request body.
-
 
 class ForgotPasswordRequest(BaseModel):
     email: str
 
-
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=8)
-
 
 class TokenResponse(BaseModel):
     access_token: str
@@ -170,24 +127,20 @@ class TokenResponse(BaseModel):
     role: str
     username: str
 
-
 class MeResponse(BaseModel):
     username: str
     role: str
     user_id: int
-
 
 class SessionResponse(BaseModel):
     session_id: str
     title: str
     created_at: str
 
-
 class QueryRequest(BaseModel):
     query: str
     session_id: str | None = None
     product_line: str | None = None
-
 
 class QueryResponse(BaseModel):
     answer: str
@@ -196,14 +149,8 @@ class QueryResponse(BaseModel):
     trace_id: str
     decision: str
     session_id: str
-    degraded: bool = False       # 2026-08-24 — item 5: true when the answer came
-    generation_provider: str | None = None  # from the offline mock, not a real LLM.
-    # Before this, a mock-generated answer and a real one were structurally
-    # identical in the response — a compliance officer had no way to know
-    # whether a real model reasoned through the answer or a sentence-
-    # extraction fallback stitched it together. Confirmed as a real gap
-    # during today's provider-outage testing.
-
+    degraded: bool = False     
+    generation_provider: str | None = None 
 
 class IngestRequest(BaseModel):
     doc_path: str
@@ -212,23 +159,15 @@ class IngestRequest(BaseModel):
     access_role: list[str] | None = None
     dry_run: bool = False
 
-
 class FeedbackRequest(BaseModel):
     trace_id: str
     session_id: str
     rating: str  # "up" | "down"
     comment: str | None = None
 
-
 class RoleUpdateRequest(BaseModel):
     role: str
-    confirm_password: str  # 2026-08-24 — elevated auth: promoting someone
-    # to admin/compliance_officer must re-confirm the ACTING admin's own
-    # password, not just rely on the JWT already in hand. A leaked admin
-    # token alone should not be enough to mint more admins — this closes
-    # that gap by requiring a second factor (something the attacker would
-    # also need to know, not just possess).
-
+    confirm_password: str  
 
 class UserSummary(BaseModel):
     id: int
@@ -237,22 +176,12 @@ class UserSummary(BaseModel):
     role: str
     created_at: str
 
-
 # ─────────────────────────── auth ───────────────────────────
 
 @app.post("/auth/register", response_model=TokenResponse, status_code=201)
 def register(req: RegisterRequest) -> TokenResponse:
     if store.username_or_email_exists(req.username, req.email):
         raise HTTPException(409, "username or email already registered")
-    # Self-serve always gets the lowest-privilege role — see RegisterRequest's
-    # docstring. EXCEPTION: on a genuinely fresh deployment (zero admins
-    # exist yet), the first successful registration is auto-promoted to
-    # admin — see auth_store.promote_if_first_user()'s docstring for the
-    # race-safety guarantee. This is the alternative bootstrap path to
-    # scripts/create_admin.py's shell-access script; set
-    # AUTO_PROMOTE_FIRST_USER_TO_ADMIN=false to require that script
-    # instead, if you'd rather admin creation stay gated behind actual
-    # server access every time.
     role = next(iter(store.SELF_SERVE_ROLES))
     user = store.create_user(req.username, req.email, hash_password(req.password), role)
 
@@ -333,14 +262,6 @@ def _send_password_reset_email(to_email: str, username: str, token: str) -> bool
     try:
         import resend
         resend.api_key = config.RESEND_API_KEY
-        # 2026-08-25 — removed a debug print() that was here logging the
-        # REAL Resend API key to console/logs on every send attempt
-        # (`print(f"Sending password reset email to {to_email}", resend.api_key)`).
-        # A real secret landing in plaintext logs is a genuine security
-        # issue — Render's log viewer, or anyone with log access, would
-        # have been able to read your live API key directly. Never log
-        # API keys/secrets, even for debugging; log that a send was
-        # attempted, not the credential used to do it.
         resend.Emails.send({
             "from": config.RESEND_FROM_ADDRESS,
             "to": to_email,
@@ -354,8 +275,8 @@ def _send_password_reset_email(to_email: str, username: str, token: str) -> bool
             ),
         })
         return True
-    except Exception as e:  # noqa: BLE001 — a failed send must not crash the request or
-        logger.warning(  # leak whether the email exists via a differing error response
+    except Exception as e:  
+        logger.warning( 
             "Password reset email failed to send (%s) — falling back to console log. "
             "user=%s reset_link=%s", str(e)[:200], username, reset_link,
         )
@@ -468,30 +389,11 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
     if not session_store.get_session(session_id, user.user_id):
         raise HTTPException(404, "session not found or not owned by caller")
 
-    # 2026-08-24 fix: PII masking previously only ever scanned RETRIEVED
-    # document chunks and the GENERATED answer — never the user's own raw
-    # query. Confirmed live: a query containing a real name and email
-    # ("My name is Pavithra V & my email id is pavithra@gmail.com...")
-    # got stored completely unmasked in the session transcript and the
-    # session TITLE (visible in the Streamlit sidebar) — with the output
-    # guardrail correctly but misleadingly reporting "no PII found" (true
-    # for the context/answer it checks, silent about the query itself).
-    # masked_query_for_storage is used at every point the query gets
-    # PERSISTED below; the REAL req.query is still used for
-    # contextualization/retrieval/generation unmasked — masking wouldn't
-    # help the model answer and could garble a legitimate question that
-    # happens to overlap PII-shaped text.
     from guardrails.pii import mask_pii as _mask_pii_for_storage
     masked_query_for_storage, query_pii_found, query_pii_types = _mask_pii_for_storage(req.query)
 
     with start_trace("query", user_id=str(user.user_id)) as trace:
 
-        # 0. multi-turn contextualization — rewrite a bare follow-up
-        # ("what about for accidents instead?") into a standalone question
-        # using this session's own recent history, BEFORE it reaches the
-        # guardrail probe or retrieval. Only fetches history for an
-        # EXISTING session — a brand-new session has no prior turns, so
-        # skip the store call entirely rather than fetching an empty list.
         prior_messages = (
             session_store.get_messages(session_id, user.user_id) if is_continuing_session else []
         )
@@ -502,10 +404,6 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
             history_turns=len(prior_messages),
         )
 
-        # 1. probe + input guardrail (LLM Guard, with regex fallback) —
-        # runs on the CONTEXTUALIZED query, so a short in-domain follow-up
-        # doesn't get misread as vague/out-of-domain the way the bare
-        # follow-up alone would.
         probe = hybrid_retrieve(
             contextualized_query, _vector_store, _doc_store,
             filters={"access_role": [user.role, "*"]}, top_k=5,
@@ -529,17 +427,9 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
             return QueryResponse(answer=refusal, grounded=False, citations=[], trace_id=trace.trace_id, decision=decision.action, session_id=session_id)
 
         effective_query = decision.query
-        # Log the RAW message the user actually typed, not the rewritten
-        # standalone version — the transcript should read naturally.
-        # PII-masked before storage (see masked_query_for_storage above).
         session_store.add_message(session_id, "user", masked_query_for_storage)
         session_store.rename_session_if_first_message(session_id, user.user_id, masked_query_for_storage)
 
-        # 2. cache check (Valkey, scoped by ROLE — see retrieval/cache.py's
-        # 2026-08-23 fix docstring for why role, not user_id or a content
-        # guess, is the correct scoping dimension: role is exactly what
-        # determines document access, so same-role callers safely share a
-        # cache entry and cross-role callers never do.)
         cache_hit = _cache.lookup(effective_query, role=user.role)
         trace.log_stage("cache_check", hit=cache_hit is not None, role=user.role)
         if cache_hit:
@@ -554,13 +444,6 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
                 degraded=cached_degraded, generation_provider=cached_provider,
             )
 
-        # 3. retrieval + rerank — via the LlamaIndex-native retriever
-        # wrapper (see ADR 0001 / retrieval/llamaindex_retriever.py), not
-        # a direct hybrid_retrieve()+rerank() call. Same underlying Qdrant
-        # hybrid search and reranker either way — this just composes them
-        # through LlamaIndex's BaseRetriever contract so the harness is
-        # ready to plug in other LlamaIndex-native components (query
-        # engines, response synthesizers) without another rewrite later.
         filters = {"access_role": [user.role, "*"]}
         if req.product_line:
             filters["product_line"] = req.product_line
@@ -574,17 +457,12 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
             session_store.add_message(session_id, "assistant", answer, grounded=False)
             return QueryResponse(answer=answer, grounded=False, citations=[], trace_id=trace.trace_id, decision="fail_closed", session_id=session_id)
 
-        # Convert LlamaIndex's NodeWithScore back to our own Candidate type
-        # — everything downstream (context_guardrail, citation formatting)
-        # is written against that contract; converting here keeps this the
-        # only place that needs to know a LlamaIndex retriever was used.
         reranked = [
             Candidate(chunk_id=n.node.id_, score=n.score, metadata=n.node.metadata, text=n.node.text)
             for n in nodes
         ]
         trace.log_stage("rerank", final_chunk_count=len(reranked))
 
-        # 4. CONTEXT GUARDRAIL — between rerank and generation (ADR 0005)
         ctx_result = check_retrieved_context(reranked, user_role=user.role)
         trace.log_stage(
             "context_guardrail", passed=ctx_result.passed,
@@ -598,7 +476,6 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
             return QueryResponse(answer=answer, grounded=False, citations=[], trace_id=trace.trace_id, decision="fail_closed", session_id=session_id)
         surviving = ctx_result.surviving_chunks
 
-        # 5. generation via gateway (Groq -> Gemini fallback, or offline mock)
         context_texts = [c.text for c in surviving]
         gen_result = _gateway.generate(
             system_prompt="Answer only from the provided BFSI policy/regulatory context. Cite clauses. Be concise.",
@@ -610,16 +487,9 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
             provider_attempts=gen_result.get("provider_attempts", []),
         )
 
-        # 6. output guardrail (Guardrails AI schema + groundedness score + PII mask)
         chunk_dicts = [{"chunk_id": c.chunk_id, "source": c.metadata.get("source"), "text": c.text} for c in surviving]
         out = apply_output_guardrail(gen_result["text"], chunk_dicts)
 
-        # Belt-and-suspenders staleness check: context_guardrail already
-        # drops any chunk with effective_to set (see guardrails/
-        # context_guardrail.py), so this should structurally never fire —
-        # logging it anyway turns "we assume this invariant holds" into
-        # "we can prove it holds," which is the actual point of tracking
-        # it on the dashboard rather than just trusting the code comment.
         stale_citation_count = sum(
             1 for c in surviving if c.metadata.get("effective_to")
         )
@@ -628,8 +498,7 @@ def query(request: Request, req: QueryRequest, user: CurrentUser = Depends(get_c
             schema_valid=out.schema_valid, stale_citation_count=stale_citation_count,
             pii_detected_types=out.pii_detected_types,
         )
-
-        # 7. cache + session write-back
+        
         if out.grounded:
             chunk_versions = {c.chunk_id: c.metadata.get("version", 1) for c in surviving}
             _cache.store(
@@ -852,13 +721,13 @@ def health() -> dict:
             checks["valkey"] = "ok"
         else:
             checks["valkey"] = "degraded: no-op fallback active (see retrieval/cache.py)"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  
         checks["valkey"] = f"error: {str(e)[:100]}"
 
     try:
         store.list_users()
         checks["database"] = "ok"
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  
         checks["database"] = f"error: {str(e)[:100]}"
 
     hard_failures = [k for k, v in checks.items() if v.startswith("error")]

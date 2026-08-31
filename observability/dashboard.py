@@ -1,16 +1,3 @@
-"""
-Dashboard metrics — the "glance and know if something's wrong" numbers
-promised in the architecture discussion (CPSO, latency p95, faithfulness
-rate, fail-closed-trigger rate), computed from the trace log rather than
-guessed or left as an aspirational design doc.
-
-Reads the same trace source `observability.trace_check` reads (local
-JSONL, always dual-written even when Langfuse is also configured — see
-tracer.py) so this works identically whether or not Langfuse is set up.
-This is the one place that turns "we log everything" into "here's what
-the logs actually say," which is the gap between a good architecture doc
-and a dashboard someone can actually look at.
-"""
 from __future__ import annotations
 
 import json
@@ -25,15 +12,12 @@ FEEDBACK_LOG_PATH = Path(__file__).resolve().parent.parent / "data" / "feedback.
 EVAL_HISTORY_PATH = Path(__file__).resolve().parent.parent / "data" / "eval_history.jsonl"
 
 _USE_POSTGRES = config.DATABASE_URL is not None
-_PG_ADVISORY_LOCK_ID = 918_273_648  # distinct from auth (…646), sessions (…647),
-# tracer (…645) — each module serializes its own schema creation independently.
-
+_PG_ADVISORY_LOCK_ID = 918_273_648  
 
 def _pg_conn():
     import psycopg2
     import psycopg2.extras
     return psycopg2.connect(config.DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-
 
 def _pg_init_db() -> None:
     """
@@ -114,7 +98,7 @@ def _stage_map(stages: list[dict]) -> dict[str, dict]:
 
 def record_feedback(trace_id: str, session_id: str, user_id: int, rating: str, comment: str | None) -> None:
     """
-    2026-08-25 — new. Previously app.py's /feedback endpoint wrote
+    Previously app.py's /feedback endpoint wrote
     directly to a raw file path, bypassing this module entirely — a real
     architectural gap (the ONE place that should own how feedback is
     persisted didn't), found while auditing for other Render-blocking
@@ -180,11 +164,7 @@ def compute_dashboard_metrics(n: int = 200, request_type_filter: str | None = No
     silently skew what looked like "live" cache-hit-rate, latency, cost,
     etc. Two genuinely different things being reported as one number.
     """
-    all_traces = read_recent_traces(n * 3 if request_type_filter else n)  # over-fetch when
-    # filtering, since a chunk of the last N*3 raw entries may belong to
-    # the OTHER request_type and get filtered out — without over-fetching,
-    # a heavy eval run right before checking the live dashboard could
-    # starve it down to very few or zero live traces to report on.
+    all_traces = read_recent_traces(n * 3 if request_type_filter else n)  
     if request_type_filter:
         traces = {
             tid: stages for tid, stages in all_traces.items()
@@ -256,14 +236,7 @@ def compute_dashboard_metrics(n: int = 200, request_type_filter: str | None = No
         gen = by_stage.get("generation")
         if gen and gen.get("estimated_cost"):
             total_cost += gen["estimated_cost"]
-
-        # 2026-08-24 fix: provider_reliability used to only scan the main
-        # "generation" stage, silently missing three OTHER real gateway
-        # call sites (context rewrite, domain-relevance classification,
-        # the eval faithfulness judge) — confirmed live: the terminal
-        # showed heavy Cerebras/Gemini/OpenRouter activity the dashboard
-        # never reflected, because those three call sites had nowhere to
-        # log to. Scanning all four stage names closes that gap.
+            
         for gateway_stage in ("generation", "context_rewrite_generation", "domain_relevance_classification", "faithfulness_judge"):
             stage_entry = by_stage.get(gateway_stage)
             if not stage_entry:
@@ -364,7 +337,7 @@ def read_eval_history(last_n: int = 20) -> list[dict]:
             cur.execute("SELECT summary, recorded_at FROM eval_history ORDER BY id DESC LIMIT %s", (last_n,))
             rows = cur.fetchall()
             results = []
-            for row in reversed(rows):  # DESC-fetched for LIMIT, reversed back to chronological order
+            for row in reversed(rows): 
                 s = row["summary"] if isinstance(row["summary"], dict) else json.loads(row["summary"])
                 results.append({**s, "recorded_at": row["recorded_at"]})
             return results

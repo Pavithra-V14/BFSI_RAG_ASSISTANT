@@ -1,13 +1,3 @@
-"""
-Password hashing (stdlib PBKDF2 — no compiled-dependency risk in deploy
-environments like Render) and JWT issuing/verification (PyJWT).
-
-PRODUCTION: swap SECRET_KEY for a real secret from Render's environment
-variables (never commit it), and consider moving from PBKDF2 to bcrypt via
-`passlib[bcrypt]` if you want configurable work-factor tuning — PBKDF2 with
-a high iteration count is secure but bcrypt is the more common choice for
-credential storage specifically.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -46,10 +36,7 @@ def create_access_token(subject: str, role: str, extra: dict | None = None) -> s
         "role": role,
         "iat": now,
         "exp": now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
-        "jti": secrets.token_hex(16),  # unique per token — 2026-08-24 addition,
-        # required for revocation (auth/store.py's revoked_tokens table keys
-        # on this) — without a unique ID, "revoke this one token" is
-        # impossible to express; you could only revoke by user+expiry window.
+        "jti": secrets.token_hex(16), 
         **(extra or {}),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=JWT_ALGORITHM)

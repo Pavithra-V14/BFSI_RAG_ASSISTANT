@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 
-
 @pytest.fixture()
 def isolated_auth_store(monkeypatch):
     """Each test gets a throwaway SQLite file, not the real data/app.db —

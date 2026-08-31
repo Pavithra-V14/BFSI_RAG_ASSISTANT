@@ -1,7 +1,6 @@
 from guardrails.context_guardrail import check_retrieved_context
 from retrieval.index import Candidate
 
-
 def _candidate(chunk_id, text, score=0.5, access_role=None, effective_to=None):
     return Candidate(
         chunk_id=chunk_id,
@@ -9,7 +8,6 @@ def _candidate(chunk_id, text, score=0.5, access_role=None, effective_to=None):
         metadata={"access_role": access_role or ["*"], "effective_to": effective_to},
         text=text,
     )
-
 
 def test_clean_chunks_all_survive():
     chunks = [_candidate("c1", "A waiting period of 30 days applies.")]
@@ -25,7 +23,7 @@ def test_injection_in_retrieved_chunk_is_dropped():
         _candidate("c2", "A waiting period of 30 days applies from the policy start date."),
     ]
     result = check_retrieved_context(chunks, user_role="claims_adjuster")
-    assert result.passed is True  # one clean chunk still survives
+    assert result.passed is True  
     dropped_ids = {d["chunk_id"] for d in result.dropped}
     assert "c1" in dropped_ids
     assert any(d["reason"] == "injection_in_retrieved_content" for d in result.dropped if d["chunk_id"] == "c1")

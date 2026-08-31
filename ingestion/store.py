@@ -1,20 +1,3 @@
-"""
-VectorStore backed by real Qdrant (see ADR 0002), DocStore backed by local
-JSON (production: swap for Postgres/DynamoDB — see ARCHITECTURE doc §1.4 on
-why full chunk text lives outside the vector store's metadata).
-
-CONNECTION: two modes, checked in this order:
-  1. QDRANT_URL set — connects to a remote Qdrant (self-hosted server or
-     Qdrant Cloud), with QDRANT_API_KEY if the endpoint requires one.
-  2. QDRANT_URL unset — embedded/local-persistent mode
-     (`QdrantClient(path=...)`), no separate server process. This is what
-     the demo used, and it's still the default for zero-config local dev —
-     but it locks the storage path to a single client per process (see
-     ADR 0002's addendum below), so a remote endpoint is the right choice
-     the moment more than one process needs to open the same collection
-     (e.g. the FastAPI app plus a standalone CLI ingestion run, or any
-     multi-worker deployment).
-"""
 from __future__ import annotations
 
 import json
@@ -36,9 +19,6 @@ QDRANT_PATH = DATA_DIR / "qdrant_local"
 DOC_STORE_PATH = DATA_DIR / "doc_store.json"
 
 COLLECTION = "bfsi_chunks"
-
-# Fields kept small and filterable — mirrors what a real managed Pinecone
-# deployment would hold in metadata (see ADR 0002 / ARCHITECTURE §1.4).
 FILTERABLE_FIELDS = [
     "chunk_id", "doc_id", "source", "effective_date",
     "product_line", "clause_type", "version", "access_role", "effective_to",
@@ -50,14 +30,12 @@ def _stable_point_id(chunk_id: str) -> int:
     import hashlib
     return int(hashlib.sha256(chunk_id.encode()).hexdigest()[:12], 16)
 
-
 def _build_client(path: Path) -> QdrantClient:
     url = os.environ.get("QDRANT_URL")
     if url:
         api_key = os.environ.get("QDRANT_API_KEY") or None
         return QdrantClient(url=url, api_key=api_key)
     return QdrantClient(path=str(path))
-
 
 class VectorStore:
     def __init__(self, path: Path = QDRANT_PATH):
@@ -92,18 +70,16 @@ class VectorStore:
                     field_name=field,
                     field_schema=qmodels.PayloadSchemaType.KEYWORD,
                 )
-            except Exception:  # noqa: BLE001 — "already exists" on repeat runs, safe to ignore
+            except Exception: 
                 pass
-        # access_role is stored as an array (e.g. ["claims_adjuster", "*"]) —
-        # a keyword index on an array field indexes each element, which is
-        # exactly what MatchAny needs to match "does this array contain X".
+            
         try:
             self.client.create_payload_index(
                 collection_name=COLLECTION,
                 field_name="access_role",
                 field_schema=qmodels.PayloadSchemaType.KEYWORD,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:  
             pass
 
     def upsert_chunk(self, chunk: Chunk, embedding: np.ndarray | None = None) -> None:
@@ -149,14 +125,8 @@ class VectorStore:
             if allowed is None:
                 continue
             allowed_list = allowed if isinstance(allowed, list) else [allowed]
-            # NOTE: do NOT skip when "*" is present in allowed_list — "*" here
-            # means "also match chunks tagged public", it is a value in the
-            # query set, not an instruction to disable filtering. MatchAny on
-            # the array-valued access_role payload correctly matches records
-            # whose access_role contains the caller's role OR "*".
             must.append(qmodels.FieldCondition(key=key, match=qmodels.MatchAny(any=allowed_list)))
         if not include_superseded:
-            # only chunks where effective_to is null/absent (not yet superseded)
             must.append(qmodels.IsNullCondition(is_null=qmodels.PayloadField(key="effective_to")))
         if not must:
             return None

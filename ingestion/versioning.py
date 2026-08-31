@@ -1,9 +1,3 @@
-"""
-Incremental reindexing (M2). On re-ingest of an amended document, only
-chunks whose content_hash changed get re-embedded; unchanged chunks are
-left alone; removed chunks get `effective_to` set instead of being deleted
-(audit trail requirement — see invariant in context-graph.json).
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -11,14 +5,12 @@ from datetime import date
 
 from ingestion.chunker import Chunk
 
-
 @dataclass
 class DiffResult:
     new: list[Chunk]
     changed: list[Chunk]
     unchanged: list[Chunk]
     removed_chunk_ids: list[str]
-
 
 def diff_chunks(old_chunks: list[Chunk], new_chunks: list[Chunk]) -> DiffResult:
     """

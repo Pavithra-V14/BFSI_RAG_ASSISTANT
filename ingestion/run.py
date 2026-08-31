@@ -1,13 +1,3 @@
-"""
-Ingestion pipeline CLI — the M1/M2 demo command.
-
-    python -m ingestion.run --doc samples/sample_health_policy.txt \
-        --source insurer_policy --product-line health --dry-run
-
-Flow: safety scan -> parse -> clause chunk -> hash-diff against existing
-version -> write only changed/new chunks to the store (M2 incremental
-reindex), soft-close removed chunks with effective_to instead of deleting.
-"""
 from __future__ import annotations
 
 import argparse
@@ -54,10 +44,6 @@ def run_ingestion(
         parsed.text, doc_id=parsed.doc_id, source=source, product_line=product_line
     )
 
-    # Multimodal content — tables and image captions extracted by
-    # ingestion/parser.py's PyMuPDF-based parser (real for PDFs; always
-    # empty for the plain-text sample docs, which have neither). Chunk
-    # IDs continue numbering from where clause_chunk() left off.
     multimodal = multimodal_chunks(
         parsed.tables_as_markdown, parsed.image_captions,
         doc_id=parsed.doc_id, source=source, product_line=product_line,
@@ -83,10 +69,6 @@ def run_ingestion(
 
     diff = diff_chunks(existing_chunks, new_chunks)
 
-    # Track embedding backend per chunk BEFORE writing, so the response
-    # can flag degraded embeddings even in a dry run (nothing gets
-    # written on dry-run, but the operator still learns whether Gemini
-    # was actually reachable for this document).
     chunks_to_embed = diff.new + diff.changed
     embedding_sources: dict[str, str] = {}
     embedding_cache: dict[str, tuple] = {}
@@ -116,18 +98,12 @@ def run_ingestion(
             "tables_extracted": len(parsed.tables_as_markdown),
             "images_captioned": len(parsed.image_captions),
             "images_skipped_no_caption": parsed.images_skipped_no_caption,
-            # nonzero images_skipped_no_caption with GEMINI_API_KEY unset is
-            # expected (captioning needs it) — nonzero WITH the key set means
-            # individual caption calls failed, worth investigating.
         },
         "embedding_summary": {
             "gemini": sum(1 for s in embedding_sources.values() if s == "gemini"),
             "hash_fallback": len(degraded_chunk_ids),
         },
-        "degraded_chunk_ids": degraded_chunk_ids,  # empty list = every new/changed
-        # chunk got a real semantic embedding; a non-empty list means some
-        # chunks are only keyword-searchable (BM25 side of hybrid search)
-        # until re-ingested with GEMINI_API_KEY reachable.
+        "degraded_chunk_ids": degraded_chunk_ids, 
         "sample_metadata": [
             {
                 "chunk_id": c.chunk_id,
@@ -187,8 +163,6 @@ def deprecate_document(
 
 
 def get_stores_for(dry_run: bool) -> tuple[VectorStore, DocStore]:
-    # dry-run still reads existing state (to compute a real diff) but the
-    # write path is skipped in run_ingestion() above.
     return VectorStore(), DocStore()
 
 

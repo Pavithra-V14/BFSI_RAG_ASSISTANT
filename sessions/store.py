@@ -1,15 +1,3 @@
-"""
-Chat sessions — the Claude-Code-style "several sessions per user" layer.
-Every read enforces user_id ownership at the SQL level, not just in the
-route handler, so a session_id from another user can never be fetched by
-guessing the id.
-
-2026-08-25 — migrated to the same dual-backend pattern as auth/store.py:
-SQLite for local dev (default), Postgres when DATABASE_URL is set (any
-deployment where the filesystem doesn't survive a restart). See that
-module's docstring for the full rationale — same placeholder-translation
-approach, same RETURNING-clause portability, not repeated here.
-"""
 from __future__ import annotations
 
 import json
@@ -26,14 +14,9 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "app.db"
 DB_PATH.parent.mkdir(exist_ok=True)
 
 _USE_POSTGRES = config.DATABASE_URL is not None
-_PG_ADVISORY_LOCK_ID = 918_273_647  # distinct from auth/store.py's (…646) and
-# tracer.py's (…645) lock IDs — each module serializes its own schema
-# creation independently.
-
-
+_PG_ADVISORY_LOCK_ID = 918_273_647  
 def _translate_placeholders(sql: str) -> str:
     return sql.replace("%s", "?")
-
 
 @contextmanager
 def _conn():
@@ -50,20 +33,14 @@ def _conn():
     finally:
         conn.close()
 
-
 def _execute(conn, sql: str, params: tuple = ()):
     cur = conn.cursor()
     cur.execute(sql if _USE_POSTGRES else _translate_placeholders(sql), params)
     return cur
 
-
 def init_db() -> None:
     with _conn() as conn:
         if _USE_POSTGRES:
-            # 2026-08-25 — see auth/store.py and observability/tracer.py
-            # for the confirmed-live race condition this protects against:
-            # CREATE TABLE IF NOT EXISTS is not safe against genuinely
-            # concurrent first-time creation from multiple processes.
             _execute(conn, "SELECT pg_advisory_xact_lock(%s)", (_PG_ADVISORY_LOCK_ID,))
             _execute(conn, """
                 CREATE TABLE IF NOT EXISTS sessions (
@@ -129,7 +106,6 @@ def create_session(user_id: int, title: str = "New chat") -> ChatSession:
 
 def _normalize_row(row: dict) -> dict:
     """
-    2026-08-25 fix — same issue as auth/store.py's identical helper:
     Postgres returns TIMESTAMPTZ columns as real datetime objects, SQLite
     returns plain strings, and every Pydantic response model in app.py
     expects created_at as a str. Confirmed live (real ValidationError on

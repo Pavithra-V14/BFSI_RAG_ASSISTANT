@@ -1,11 +1,3 @@
-"""
-Clause-level chunking — splits at clause/section boundaries, not fixed
-token windows (see ARCHITECTURE doc §1.3 for why: fixed windows split
-exclusion clauses mid-thought, which is exactly wrong for compliance text).
-
-Target: 300-500 tokens per chunk, ~10-15% overlap only when a single clause
-exceeds the target size (rare for regulatory clause text).
-"""
 from __future__ import annotations
 
 import hashlib
@@ -20,16 +12,13 @@ from gateway.llm_gateway import get_gateway
 
 logger = logging.getLogger(__name__)
 
-# Matches "Section 3.", "Clause 2.1", "3.2" at line start — the clause
-# boundary markers used in both sample documents.
 CLAUSE_BOUNDARY = re.compile(
     r"^(Section\s+\d+[\.\)]|Clause\s+\d+[\.\)]|\d+\.\d+)\s", re.MULTILINE
 )
 
-TARGET_TOKENS = config.CHUNK_TARGET_TOKENS          # ~500 token cap, generous 50-token buffer
-OVERLAP_TOKENS = config.CHUNK_OVERLAP_TOKENS          # ~13% overlap, only used on oversized clauses
-CHARS_PER_TOKEN = 4          # rough estimate, good enough for chunk sizing
-
+TARGET_TOKENS = config.CHUNK_TARGET_TOKENS         
+OVERLAP_TOKENS = config.CHUNK_OVERLAP_TOKENS        
+CHARS_PER_TOKEN = 4        
 
 @dataclass
 class Chunk:
@@ -125,7 +114,7 @@ def clause_chunk(
 
     boundaries = [m.start() for m in CLAUSE_BOUNDARY.finditer(text)]
     if not boundaries:
-        # no recognizable clause markers — fall back to paragraph split
+        
         raw_clauses = [p for p in text.split("\n\n") if p.strip()]
     else:
         boundaries.append(len(text))
@@ -196,13 +185,10 @@ def _classify_clause_llm(text: str) -> str | None:
         )
         result = gateway.generate(system_prompt=system_prompt, context_chunks=[], query=text)
         if result["provider"] in ("offline_mock", "offline_mock_fallback", None):
-            # gateway fell back mid-call — the mock generator does
-            # sentence-extraction, not classification; its output here
-            # would be meaningless, so treat this the same as "no provider"
             return None
         label = result["text"].strip().lower().strip('."\'')
         return label if label in CLAUSE_CATEGORIES else None
-    except Exception as e:  # noqa: BLE001 — classification must never block ingestion
+    except Exception as e:  
         logger.warning("LLM clause classification failed (%s), using keyword fallback", str(e)[:200])
         return None
 
@@ -220,15 +206,6 @@ def _classify_clause_keyword(text: str) -> str:
     if "waiting period" in lowered:
         return "waiting_period"
     if "kyc" in lowered or "identity" in lowered:
-        # Checked BEFORE the generic "claim" check on purpose — clause text
-        # like "KYC Requirements for High-Value Claims" contains both
-        # words, and the more specific kyc/identity signal should win.
-        # This exact case (mislabeled "claims" instead of "kyc") is what
-        # caused a real Precision@5 eval failure — see the golden-set case
-        # for "identity verification for high-value claims". The LLM
-        # classifier above doesn't have this failure mode at all — it's
-        # exactly the kind of ambiguity an LLM resolves better than a
-        # fixed keyword-priority order can.
         return "kyc"
     if "claim" in lowered:
         return "claims"

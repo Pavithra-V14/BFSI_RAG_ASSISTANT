@@ -1,16 +1,3 @@
-"""
-M8 demo command:
-
-    python -m cache.smoke_test --role-a claims_adjuster --role-b relationship_manager
-
-Tests the CORRECT invariant after the 2026-08-23 scoping fix: cache
-entries are shared across callers with the SAME role, and never leak
-across DIFFERENT roles — this is what actually matters, since role is
-the dimension that determines document access (see retrieval/cache.py's
-module docstring for the bug this replaced: a query-content heuristic
-that let one role's cached answer leak to a different, differently-
-privileged role).
-"""
 from __future__ import annotations
 
 import argparse
@@ -21,8 +8,6 @@ from retrieval.cache import SemanticCache
 
 def run(role_a: str, role_b: str) -> dict:
     cache = SemanticCache()
-
-    # cached under role_a
     cache.store(
         query="what is the co-payment for out-of-network treatment",
         role=role_a,

@@ -1,8 +1,3 @@
-"""
-Hybrid retrieval: dense (VectorStore, HNSW in production) + sparse (BM25),
-merged via Reciprocal Rank Fusion. Filters applied BEFORE scoring — never
-post-filter (see context-graph.json invariant).
-"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -15,8 +10,7 @@ from rank_bm25 import BM25Okapi
 from ingestion.store import DocStore, VectorStore
 from retrieval.embed import embed_text
 
-RRF_K = 60  # standard RRF constant
-
+RRF_K = 60  
 
 @dataclass
 class Candidate:
@@ -24,7 +18,6 @@ class Candidate:
     score: float
     metadata: dict
     text: str
-
 
 def _bm25_rank(query: str, chunk_records: list[tuple[str, dict, str]]) -> dict[str, int]:
     """
@@ -44,7 +37,7 @@ def _bm25_rank(query: str, chunk_records: list[tuple[str, dict, str]]) -> dict[s
     if not chunk_records:
         return {}
     corpus = [text.lower().split() for _, _, text in chunk_records]
-    if not any(corpus):  # every document tokenized to an empty list
+    if not any(corpus):  
         logger.warning(
             "BM25 corpus has %d chunk_ids but zero non-empty texts — "
             "DocStore/VectorStore are likely out of sync for these chunks. "
@@ -67,14 +60,12 @@ def hybrid_retrieve(
 ) -> list[Candidate]:
     query_vec = embed_text(query)
 
-    # Dense pass (pre-filtered)
     dense_hits = vector_store.query(query_vec, filters=filters, top_k=max(top_k, 50))
     if not dense_hits:
         return []
 
     dense_rank = {chunk_id: rank for rank, (chunk_id, _, _) in enumerate(dense_hits)}
 
-    # Sparse pass over the SAME pre-filtered candidate set (fair comparison)
     chunk_records = []
     for chunk_id, _, meta in dense_hits:
         doc = doc_store.get(chunk_id)
@@ -82,7 +73,6 @@ def hybrid_retrieve(
         chunk_records.append((chunk_id, meta, text))
     sparse_rank = _bm25_rank(query, chunk_records)
 
-    # Reciprocal Rank Fusion
     fused_scores: dict[str, float] = {}
     for chunk_id in dense_rank:
         d = dense_rank.get(chunk_id)

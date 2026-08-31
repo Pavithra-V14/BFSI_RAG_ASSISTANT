@@ -1,13 +1,3 @@
-"""
-Input guardrail — runs BEFORE cache/retrieval touch the query (see ADR 0005).
-
-PRIMARY: LLM Guard's PromptInjection scanner (ML-based, downloads a model on
-first use). FALLBACK: regex pattern check, used automatically if the model
-can't be loaded (e.g. no network access to the model hub in this environment)
-— logs a warning so the gap is visible, not silent. In a deployment with
-model-hub access, LLM Guard's scanner engages automatically, no code change
-needed.
-"""
 from __future__ import annotations
 
 import logging
@@ -98,7 +88,7 @@ def _get_llm_guard_scanner():
     try:
         from llm_guard.input_scanners import PromptInjection
         return PromptInjection()
-    except Exception as e:  # noqa: BLE001 — model download / init can fail many ways
+    except Exception as e: 
         logger.warning(
             "LLM Guard PromptInjection scanner unavailable (%s) — "
             "falling back to regex injection check.", str(e)[:200],
@@ -144,10 +134,7 @@ def _domain_score_keyword(query: str) -> float:
     """
     lowered = query.lower()
     count = sum(1 for kw in DOMAIN_KEYWORDS if kw in lowered)
-    return min(count / 2, 1.0)  # 2+ keyword hits = fully in-domain,
-    # 0 hits = 0.0 (preserves the original "score == 0 -> possibly out of
-    # domain" behavior when this is the active tier)
-
+    return min(count / 2, 1.0)  
 
 def _domain_score_llm(query: str) -> float | None:
     """
@@ -182,15 +169,13 @@ def _domain_score_llm(query: str) -> float | None:
         from observability.tracer import log_gateway_attempt
         log_gateway_attempt("domain_relevance_classification", result)
         if result["provider"] in ("offline_mock", "offline_mock_fallback", None):
-            return None  # mock generator can't meaningfully score relevance
+            return None  
         score = float(result["text"].strip())
-        return max(0.0, min(score, 1.0))  # clamp — a malformed "1.5" or
-        # negative number from the model shouldn't silently break the
-        # downstream threshold comparison
+        return max(0.0, min(score, 1.0)) 
     except (ValueError, TypeError):
         logger.warning("Domain relevance LLM response wasn't a parseable number, using keyword fallback")
         return None
-    except Exception as e:  # noqa: BLE001 — classification must never block a query
+    except Exception as e: 
         logger.warning("Domain relevance LLM call failed (%s), using keyword fallback", str(e)[:200])
         return None
 

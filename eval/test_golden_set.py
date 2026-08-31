@@ -1,25 +1,3 @@
-"""
-M6 demo command:
-
-    pytest eval/test_golden_set.py -v
-
-DeepEval-based CI gate (see ADR 0008) — runs the full harness (input
-guardrail -> retrieval -> rerank -> context guardrail -> generation ->
-output guardrail) against the golden set and asserts every metric in
-wiki/concepts/pipeline-parameters.md. This is the regression gate every
-future milestone's demo command should be run alongside.
-
-Golden set cases come in two kinds, both in eval/golden_set/sample.jsonl:
-  - retrieval cases: {"query", "role", "expected_clause_type", "expected_doc_id"}
-    scored on Recall@25, Precision@5, faithfulness, citation presence.
-  - refusal cases: {"query", "role", "expect_refusal": true}
-    in-domain-but-unanswerable or out-of-domain/injection queries that
-    should be refused, not answered. Scored separately (refusal accuracy)
-    — a retrieval quality metric has no meaning for a query with no
-    expected document, so these are excluded from Recall/Precision math
-    rather than silently counted as misses (which would understate real
-    retrieval quality) or hits (which would overstate it).
-"""
 from __future__ import annotations
 
 import json
@@ -41,16 +19,10 @@ from retrieval.rerank import rerank
 
 GOLDEN_SET_PATH = Path(__file__).parent / "golden_set" / "sample.jsonl"
 
-# Eval targets — see wiki/concepts/pipeline-parameters.md, this is the
-# single source of truth mirrored into code as the CI gate.
 TARGET_RECALL_AT_25 = 0.90
 TARGET_PRECISION_AT_5 = 0.80
 TARGET_FAITHFULNESS = 0.80
-TARGET_REFUSAL_ACCURACY = 1.00  # binary gate — a compliance assistant answering an
-                                 # out-of-domain or injection query is a worse failure
-                                 # than a slightly-off retrieval score, so this is 100%
-                                 # not a threshold, same reasoning as citation accuracy.
-
+TARGET_REFUSAL_ACCURACY = 1.00  
 
 def load_golden_set() -> list[dict]:
     return [json.loads(line) for line in GOLDEN_SET_PATH.read_text().splitlines() if line.strip()]
@@ -97,13 +69,7 @@ def run_case(case: dict, vector_store: VectorStore | None = None, doc_store: Doc
         owns_stores = vector_store is None and doc_store is None
         if owns_stores:
             vector_store, doc_store = VectorStore(), DocStore()
-        gateway = get_gateway()  # shared singleton — see gateway/llm_gateway.py
-
-        # False-refusal check: this is a real, in-domain, answerable question
-        # from the golden set — it must NOT get refused by the input guardrail.
-        # A false refusal here is a worse product failure than an imperfect
-        # retrieval score (the user gets nothing at all instead of an
-        # imperfect-but-useful answer), so it's tracked as its own metric.
+        gateway = get_gateway() 
         probe = hybrid_retrieve(case["query"], vector_store, doc_store, filters={"access_role": [case["role"], "*"]}, top_k=5)
         probe_confidence = probe[0].score if probe else 0.0
         guardrail_decision = check_input(case["query"], retrieval_confidence=probe_confidence)
@@ -121,12 +87,10 @@ def run_case(case: dict, vector_store: VectorStore | None = None, doc_store: Doc
         recall_hit = case["expected_doc_id"] in retrieved_doc_ids
         precision_hit = case["expected_clause_type"] in retrieved_clause_types
 
-        # Rank of the first candidate matching expected_doc_id, in the
-        # PRE-rerank candidate order — feeds MRR. 0 means "not found at all".
         doc_rank = next(
             (i + 1 for i, c in enumerate(candidates) if c.metadata.get("doc_id") == case["expected_doc_id"]), 0
         )
-        # Binary relevance per position in the reranked top-5 — feeds nDCG@5.
+        
         relevance_at_rank = [
             1 if c.metadata.get("clause_type") == case["expected_clause_type"] else 0 for c in reranked
         ]
@@ -212,9 +176,6 @@ def golden_results(shared_stores) -> list[dict]:
 
 @pytest.fixture(scope="module")
 def refusal_results() -> list[dict]:
-    # run_refusal_case only exercises the input guardrail (see its
-    # docstring) — no vector store involved at all, no shared-instance
-    # concern here.
     return _run_cases_parallel([c for c in load_golden_set() if c.get("expect_refusal")], run_refusal_case)
 
 
@@ -299,7 +260,7 @@ def _ndcg_at_5(results: list[dict]) -> float:
     scores = []
     for r in results:
         actual = r["relevance_at_rank"]
-        ideal = sorted(actual, reverse=True)  # best-possible ordering for THIS case's relevance counts
+        ideal = sorted(actual, reverse=True) 
         idcg = _dcg(ideal)
         scores.append(_dcg(actual) / idcg if idcg else 0.0)
     return sum(scores) / len(scores) if scores else 0.0
@@ -349,23 +310,9 @@ def evaluate_summary(
     mrr = _mrr(results) if results else None
     ndcg5 = _ndcg_at_5(results) if results else None
     false_refusal_rate = sum(r["falsely_refused"] for r in results) / n if n else None
-    # Which specific queries got wrongly refused — an aggregate rate alone
-    # doesn't tell you what to actually tune. Confirmed live (2026-08-24):
-    # 27% false refusal once real embeddings were consistently in play,
-    # almost certainly because OUT_OF_DOMAIN_CONFIDENCE_FLOOR/
-    # VAGUE_QUERY_CONFIDENCE_FLOOR (config.py) were tuned against the old
-    # hash-embedder's score distribution and never recalibrated for real
-    # Gemini embeddings' actual confidence range. This list is what you'd
-    # look at to find the right new threshold values.
     falsely_refused_queries = [r["case"]["query"] for r in results if r["falsely_refused"]]
 
     grounded_results = [r for r in results if r["grounded"]]
-    # PARALLELIZED — this loop was the remaining bottleneck even after
-    # retrieval cases were parallelized: each grounded answer needs its
-    # own real judge-LLM call (FaithfulnessMetric -> get_gateway().generate),
-    # and running ~20 of those sequentially after the retrieval phase
-    # already completed was still enough to exceed a 120s client timeout
-    # on its own. Same bounded-concurrency reasoning as everywhere else.
     def _score_one(r: dict) -> float:
         tc = LLMTestCase(input=r["case"]["query"], actual_output=r["answer"], retrieval_context=r["context_texts"])
         return FaithfulnessMetric().measure(tc)
@@ -376,10 +323,6 @@ def evaluate_summary(
             futures = [pool.submit(_score_one, r) for r in grounded_results]
             faithfulness_scores = [f.result() for f in as_completed(futures)]
     faithfulness = sum(faithfulness_scores) / len(faithfulness_scores) if faithfulness_scores else 0.0
-    # Hallucination rate: fraction of GROUNDED answers that still scored
-    # below the faithfulness threshold — distinct from faithfulness_rate
-    # (the average score) because a stakeholder asking "how often does it
-    # make things up" wants a rate, not an average.
     hallucination_rate = (
         sum(1 for s in faithfulness_scores if s < TARGET_FAITHFULNESS) / len(faithfulness_scores)
         if faithfulness_scores else 0.0
@@ -390,10 +333,6 @@ def evaluate_summary(
         sum(r["refused_correctly"] for r in refusal_results_) / len(refusal_results_)
         if refusal_results_ else None
     )
-    # False pass rate is exactly the inverse of refusal_accuracy on the
-    # refusal cases (an out-of-domain/injection query that WASN'T
-    # refused) — reported separately since "false pass rate" is the term
-    # a security-focused stakeholder will actually search the dashboard for.
     false_pass_rate = round(1 - refusal_accuracy, 3) if refusal_accuracy is not None else None
 
     summary = {
@@ -415,7 +354,7 @@ def evaluate_summary(
     try:
         from observability.dashboard import record_eval_run
         record_eval_run(summary)
-    except Exception:  # noqa: BLE001 — recording history must never break the eval itself
+    except Exception: 
         pass
 
     return summary

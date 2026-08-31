@@ -1,15 +1,3 @@
-"""
-Safety scan — runs BEFORE any parsing/embedding touches document content.
-
-Two things this checks for:
-  1. Prompt-injection-style text embedded in the document (instructions aimed
-     at whatever LLM later reads this content as "context").
-  2. Active content in the source file itself (PDF JavaScript/OpenAction) —
-     a parsing-time check, not an LLM check.
-
-Production note: swap INJECTION_PATTERNS for a proper classifier (LLM Guard /
-Rebuff) at scale — regex is a floor, not a ceiling.
-"""
 from __future__ import annotations
 
 import re
@@ -28,16 +16,12 @@ INJECTION_PATTERNS = [
 ]
 
 _COMPILED = [re.compile(p, re.IGNORECASE) for p in INJECTION_PATTERNS]
-
-# PDF active-content markers to flag (raw byte scan, before text extraction)
 PDF_ACTIVE_CONTENT_MARKERS = [b"/JavaScript", b"/JS", b"/OpenAction", b"/AA"]
-
 
 @dataclass
 class ScanResult:
     safe: bool
     reasons: list[str] = field(default_factory=list)
-
 
 def scan_text(text: str) -> ScanResult:
     """Scan extracted text for injection-style instructions."""
@@ -47,7 +31,6 @@ def scan_text(text: str) -> ScanResult:
             reasons.append(f"injection_pattern_matched:{pattern.pattern}")
     return ScanResult(safe=not reasons, reasons=reasons)
 
-
 def scan_raw_bytes(raw: bytes) -> ScanResult:
     """Scan the raw file bytes for active content before parsing."""
     reasons = []
@@ -55,7 +38,6 @@ def scan_raw_bytes(raw: bytes) -> ScanResult:
         if marker in raw:
             reasons.append(f"active_content_marker:{marker.decode()}")
     return ScanResult(safe=not reasons, reasons=reasons)
-
 
 def scan_document(raw_bytes: bytes, extracted_text: str) -> ScanResult:
     """Combined pre-ingestion safety gate. A document must pass both checks."""

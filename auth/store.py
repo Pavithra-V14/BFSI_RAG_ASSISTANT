@@ -1,43 +1,3 @@
-"""
-User store — dual-backend: SQLite for local development (zero external
-dependencies, works out of the box), Postgres for any deployment where
-the filesystem doesn't survive a restart (Render's free tier wipes disk
-on every restart/redeploy — see config.DATABASE_URL's docstring).
-
-Which backend is active is decided ONCE at import time by whether
-DATABASE_URL is set — not per-call — so there's no per-request branching
-cost and no risk of a single process talking to two different databases.
-
-2026-08-25 migration notes:
-  - Every query is written ONCE, Postgres-native (%s placeholders,
-    RETURNING clauses) — SQLite 3.35+ (confirmed available: 3.45.1)
-    supports RETURNING too, and %s->? placeholder translation happens
-    automatically in _execute() for the SQLite path, so nearly all SQL
-    below is genuinely shared between both backends, not duplicated.
-  - Table CREATION syntax genuinely differs (AUTOINCREMENT vs SERIAL,
-    PRAGMA table_info vs information_schema.columns) — kept as explicit
-    per-backend branches in init_db(), not worth over-abstracting for
-    two small DDL blocks that only run once at startup.
-  - Row access is normalized to dict-style (row["col"]) for BOTH
-    backends — sqlite3.Row supports this natively; Postgres uses
-    RealDictCursor to match, so calling code never needs to know which
-    backend is active.
-
-ROLE MODEL (2026-08 consolidation): `relationship_manager` was dropped —
-it was functionally identical to `claims_adjuster` everywhere in the
-codebase (same endpoint permissions, no distinct retrieval scoping ever
-configured for it), so it existed only as unused surface area. If a real
-distinction is needed later (e.g. relationship managers should see
-product-brochure content but not claims-adjudication content), reintroduce
-it deliberately with an actual access_role split at ingestion time, not
-as a role that exists without a corresponding permission difference.
-
-Self-serve registration (`/auth/register`) can only create the
-lowest-privilege role — see SELF_SERVE_ROLES. Anything above that
-(`compliance_officer`, `admin`) requires an existing admin to promote the
-account via `PATCH /admin/users/{id}/role` — see app.py. This closes the
-previously-open gap where anyone could self-register as `admin`.
-"""
 from __future__ import annotations
 
 import sqlite3
@@ -51,18 +11,11 @@ DB_PATH = Path(__file__).resolve().parent.parent / "data" / "app.db"
 DB_PATH.parent.mkdir(exist_ok=True)
 
 VALID_ROLES = {"claims_adjuster", "compliance_officer", "admin"}
-SELF_SERVE_ROLES = {"claims_adjuster"}  # the only role /auth/register may assign directly
+SELF_SERVE_ROLES = {"claims_adjuster"}  
 
 _USE_POSTGRES = config.DATABASE_URL is not None
-_PG_ADVISORY_LOCK_ID = 918_273_646  # distinct from tracer.py's lock ID (…645) and
-# sessions/store.py's (…647) — each module serializes its OWN schema
-# creation, not each other's; using the same ID everywhere would cause
-# unrelated modules to unnecessarily block on each other at startup.
-_PG_FIRST_ADMIN_LOCK_ID = 918_273_649  # separate from the schema-creation
-# lock above — a different critical section (check-then-promote on
-# registration, not one-time schema setup), kept distinct for clarity and
-# to avoid any confusing contention between the two unrelated operations.
-
+_PG_ADVISORY_LOCK_ID = 918_273_646  
+_PG_FIRST_ADMIN_LOCK_ID = 918_273_649 
 
 @dataclass
 class User:
@@ -107,14 +60,6 @@ def _execute(conn, sql: str, params: tuple = ()):
 def init_db() -> None:
     with _conn() as conn:
         if _USE_POSTGRES:
-            # 2026-08-25 — CREATE TABLE IF NOT EXISTS is NOT safe against
-            # genuinely concurrent first-time creation from multiple
-            # processes (confirmed live in tracer.py's migration testing:
-            # 5 concurrent processes, only 1 survived, the other 4 hit a
-            # Postgres internal catalog race). Advisory lock serializes
-            # schema creation the same way — matters for Render, where
-            # multiple instances/workers starting simultaneously is a
-            # realistic scenario, not an edge case.
             _execute(conn, "SELECT pg_advisory_xact_lock(%s)", (_PG_ADVISORY_LOCK_ID,))
             _execute(conn, """
                 CREATE TABLE IF NOT EXISTS users (
@@ -142,11 +87,6 @@ def init_db() -> None:
                 )
             """)
 
-        # 2026-08-24 additions — token revocation, password reset, lockout.
-        # Separate tables rather than columns-on-users, since these are
-        # unbounded-growth append logs (many tokens/resets per user over
-        # time), not per-user attributes. Identical across both backends
-        # except the primary-key/id-type declarations.
         id_type = "SERIAL PRIMARY KEY" if _USE_POSTGRES else "INTEGER PRIMARY KEY AUTOINCREMENT"
         float_type = "DOUBLE PRECISION" if _USE_POSTGRES else "REAL"
 
@@ -167,11 +107,6 @@ def init_db() -> None:
             )
         """)
 
-        # Migration guard: older DBs created before the lockout fields
-        # existed won't have these columns on `users` — add them if
-        # missing, so this doesn't crash on an existing database from
-        # before that fix. information_schema.columns is the Postgres
-        # equivalent of SQLite's PRAGMA table_info.
         if _USE_POSTGRES:
             cur = _execute(conn, "SELECT column_name FROM information_schema.columns WHERE table_name = 'users'")
             existing_cols = {row["column_name"] for row in cur.fetchall()}
@@ -229,7 +164,7 @@ def update_role(user_id: int, new_role: str) -> bool:
 
 def _normalize_row(row: dict) -> dict:
     """
-    2026-08-25 fix — confirmed live: Postgres's psycopg2 driver returns
+    Postgres's psycopg2 driver returns
     TIMESTAMPTZ columns as real Python datetime objects; SQLite returns
     the same logical column as a plain string (it's declared TEXT there).
     Every Pydantic response model in app.py expects created_at as a str
@@ -284,12 +219,8 @@ def promote_if_first_user(user_id: int) -> bool:
         _execute(conn, "UPDATE users SET role = 'admin' WHERE id = %s", (user_id,))
         return True
 
-
-# ─────────────────────────── account lockout (item 3) ───────────────────────────
-
 MAX_FAILED_LOGIN_ATTEMPTS = 5
-LOCKOUT_DURATION_SECONDS = 15 * 60  # 15 minutes
-
+LOCKOUT_DURATION_SECONDS = 15 * 60  
 
 def is_locked_out(username: str) -> bool:
     """Checked BEFORE password verification in /auth/login — a locked
@@ -303,8 +234,6 @@ def is_locked_out(username: str) -> bool:
     if locked_until is None:
         return False
     if time.time() > locked_until:
-        # lockout window has passed — clear it so the next successful
-        # check doesn't need to happen twice
         _clear_lockout(row["id"])
         return False
     return True
@@ -314,7 +243,7 @@ def record_failed_login(username: str) -> None:
     import time
     row = get_user_by_username(username)
     if row is None:
-        return  # don't reveal whether the username exists via lockout side-channel
+        return 
     new_count = row["failed_login_count"] + 1
     with _conn() as conn:
         if new_count >= MAX_FAILED_LOGIN_ATTEMPTS:
@@ -335,9 +264,6 @@ def _clear_lockout(user_id: int) -> None:
     with _conn() as conn:
         _execute(conn, "UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = %s", (user_id,))
 
-
-# ─────────────────────────── token revocation (item 1) ───────────────────────────
-
 def revoke_token(jti: str, expires_at: float) -> None:
     """expires_at: the token's own expiry — once past it, the revocation
     record is dead weight (an expired token is already unusable), so
@@ -357,7 +283,6 @@ def revoke_token(jti: str, expires_at: float) -> None:
                 (jti, time.time(), expires_at),
             )
 
-
 def is_token_revoked(jti: str) -> bool:
     with _conn() as conn:
         cur = _execute(conn, "SELECT 1 FROM revoked_tokens WHERE jti = %s", (jti,))
@@ -370,11 +295,7 @@ def purge_expired_revocations() -> int:
         cur = _execute(conn, "DELETE FROM revoked_tokens WHERE expires_at < %s", (time.time(),))
         return cur.rowcount
 
-
-# ─────────────────────────── password reset (item 2) ───────────────────────────
-
-PASSWORD_RESET_TOKEN_TTL_SECONDS = 30 * 60  # 30 minutes
-
+PASSWORD_RESET_TOKEN_TTL_SECONDS = 30 * 60 
 
 def create_password_reset_token(user_id: int) -> str:
     import secrets

@@ -1,34 +1,3 @@
-"""
-Semantic query cache — real Valkey backend (see ADR 0004).
-
-⚠️ SCOPING FIX (2026-08-23): originally scoped by "global" vs "user_id"
-tiers, with "global" decided by a crude heuristic (`"user" not in
-query.lower()`). That heuristic has nothing to do with document access —
-a query with no literal word "user" in it got cached in the shared global
-tier and served to EVERY caller regardless of role, bypassing the
-retrieval-layer access_role filter entirely. Confirmed live: an answer
-retrieved under a role that lacked access to a document got cached
-globally, then served verbatim to a different role that DID have access,
-serving a wrong/under-scoped answer instead of running that role's own
-correctly-filtered retrieval.
-
-Fixed by scoping every cache key by ROLE, not a query-content guess. Two
-tiers now:
-  role tier — cache:role:<role>:<hash> — shared across all callers with
-              the SAME role. Safe: role is exactly the dimension that
-              determines which chunks are visible, so same-role callers
-              always see the same retrieval-eligible content.
-  user tier — cache:user:<user_id>:<hash> — for anything that should
-              never be shared even within a role (kept for future use;
-              nothing currently routes here, but the tier exists so a
-              future feature can opt in explicitly rather than guessing).
-
-This trades away true global sharing (a claims_adjuster and a
-compliance_officer asking the identical public-regulatory question won't
-share a cache entry) for correctness — a much safer trade than the bug
-this replaces. See context-graph.json's cache_key_namespaced_by_scope
-invariant, now extended to cover role as well as user_id.
-"""
 from __future__ import annotations
 
 import json
@@ -47,7 +16,6 @@ logger = logging.getLogger(__name__)
 SIMILARITY_THRESHOLD = config.CACHE_SIMILARITY_THRESHOLD
 DEFAULT_TTL_SECONDS = config.CACHE_DEFAULT_TTL_SECONDS
 
-
 def _client() -> valkey.Valkey:
     uri = os.environ.get("VALKEY_URI")
     if uri:
@@ -56,9 +24,6 @@ def _client() -> valkey.Valkey:
         if ca_cert:
             kwargs["ssl_ca_certs"] = ca_cert
             kwargs["ssl_cert_reqs"] = "required"
-        # ssl_cert_reqs="none" if no CA cert given — encrypts in transit,
-        # doesn't verify the chain. Fine to unblock Aiven quickly; add the
-        # CA cert (VALKEY_CA_CERT) before this touches real traffic.
         elif uri.startswith("rediss://"):
             kwargs["ssl_cert_reqs"] = "none"
         return valkey.Valkey.from_url(uri, **kwargs)
@@ -82,13 +47,12 @@ def _client() -> valkey.Valkey:
             kwargs["ssl_cert_reqs"] = "none"
     return valkey.Valkey(**kwargs)
 
-
 class SemanticCache:
     def __init__(self):
         try:
             self._redis = _client()
             self._redis.ping()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e: 
             logger.warning("Valkey unreachable (%s) — cache will no-op (misses only, never errors)", str(e)[:200])
             self._redis = None
 
@@ -116,11 +80,6 @@ class SemanticCache:
             try:
                 score = cosine_similarity(query_vec, np.array(entry["embedding"]))
             except ValueError:
-                # Dimension mismatch — entry was cached with a different
-                # embedding model/DIM than the one currently active (e.g.
-                # embed.py's DIM changed after this entry was written).
-                # Skip it rather than crash the whole lookup, and clean it
-                # up so it doesn't get rescanned on every future query.
                 logger.warning("Stale cache entry with mismatched embedding dims, evicting: %s", key)
                 stale_keys.append(key)
                 continue
@@ -152,12 +111,7 @@ class SemanticCache:
             "citations": citations,
             "chunk_versions": chunk_versions,
             "created_at": time.time(),
-            "generation_provider": generation_provider,  # 2026-08-24 — item 5:
-            # without this, a cache hit replaying a mock-generated answer
-            # would look identical to a real one at read time, with no way
-            # to tell — the exact silent-degradation gap this whole item
-            # exists to close, and it applies to cached answers just as
-            # much as fresh ones.
+            "generation_provider": generation_provider, 
         }
         self._redis.set(key, json.dumps(entry), ex=ttl_seconds)
 

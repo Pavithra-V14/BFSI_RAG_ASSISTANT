@@ -1,19 +1,3 @@
-"""
-LlamaIndex orchestration layer (see ADR 0001: used as a library, not a
-black-box pipeline). This wraps our own tested hybrid-retrieval + rerank
-logic (retrieval/index.py, retrieval/rerank.py) as a proper LlamaIndex
-BaseRetriever, so the harness composes with any other LlamaIndex-native
-component (query engines, response synthesizers) a future milestone might
-add — without rewriting the RRF fusion, access-filtering, or Qdrant wiring
-that's already tested end to end.
-
-Why not let LlamaIndex own retrieval directly: its native QdrantVectorStore
-integration doesn't know about our clause-versioning payload schema
-(effective_to, access_role-as-array) without a custom node-to-payload
-mapping — the ROI of that rewrite is low versus wrapping the tested logic
-we already have. This wrapper is the pragmatic middle ground the ADR calls
-for: LlamaIndex's retriever contract, our domain-specific implementation.
-"""
 from __future__ import annotations
 
 from llama_index.core.retrievers import BaseRetriever
@@ -23,7 +7,6 @@ import config
 from ingestion.store import DocStore, VectorStore
 from retrieval.index import hybrid_retrieve
 from retrieval.rerank import rerank
-
 
 class BFSIHybridRetriever(BaseRetriever):
     """LlamaIndex-native retriever backed by our Qdrant hybrid pipeline."""
@@ -41,10 +24,7 @@ class BFSIHybridRetriever(BaseRetriever):
         self._filters = filters or {}
         self._top_k = top_k
         self._rerank_top_k = rerank_top_k
-        self.last_candidate_count = 0  # pre-rerank count — set on every retrieve()
-        # call, so app.py's trace can log both retrieval and rerank stage
-        # counts from a single .retrieve() call instead of re-running the
-        # hybrid search a second time just to get this number.
+        self.last_candidate_count = 0  
         super().__init__()
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:

@@ -1,16 +1,3 @@
-"""
-Output guardrail — runs AFTER generation, BEFORE the answer reaches the
-user (see ADR 0005, third layer). This is where "fail closed" gets
-enforced: if the answer isn't grounded in the retrieved chunks, it doesn't
-ship.
-
-Structured validation (citation format, required fields) uses Guardrails
-AI (see ADR 0005) via a pydantic schema — this runs fully offline, no model
-download required. The faithfulness/groundedness SCORE itself uses the
-lexical-overlap proxy documented below; swap for a real NLI/entailment
-model or DeepEval's faithfulness metric (see eval/run.py, ADR 0008) once
-judge-model access is configured.
-"""
 from __future__ import annotations
 
 import re
@@ -57,10 +44,7 @@ class OutputResult:
     citations: list[str] = field(default_factory=list)
     pii_masked: bool = False
     schema_valid: bool = True
-    pii_detected_types: list[str] = field(default_factory=list)  # item 7 —
-    # audit trail of WHAT PII categories were found in the final answer,
-    # never the values themselves
-
+    pii_detected_types: list[str] = field(default_factory=list) 
 
 def _tokenize(text: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]+", text.lower()))
@@ -120,9 +104,6 @@ def apply_output_guardrail(
             for c in retrieved_chunks
         })
 
-    # Guardrails AI structural validation — a grounded answer MUST carry
-    # citations; if this fails, the answer is malformed regardless of the
-    # groundedness score above, and we fail closed rather than ship it.
     schema_valid = True
     try:
         CitedAnswer(text=masked_text, citations=citations, grounded=True)
